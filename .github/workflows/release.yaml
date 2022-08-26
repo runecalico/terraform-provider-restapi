@@ -11,7 +11,7 @@
 #
 name: release
 on:
-  workflow_run:
+  workflow_dispatch:
   push:
     tags:
       - 'v*'
