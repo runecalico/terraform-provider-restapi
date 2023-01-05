@@ -12,24 +12,26 @@ import (
 )
 
 type apiObjectOpts struct {
-	path             string
-	getPath          string
-	postPath         string
-	putPath          string
-	createMethod     string
-	readMethod       string
-	updateMethod     string
-	destroyMethod    string
-	deletePath       string
-	searchPath       string
-	queryString      string
-	debug            bool
-	createReadyKey   string
-	createReadyValue string
-	readSearch       map[string]string
-	id               string
-	idAttribute      string
-	data             string
+	path         			string
+	getPath       		string
+	postPath      		string
+	putPath       		string
+	createMethod  		string
+	readMethod    		string
+	updateMethod  		string
+	updateData    		string
+	destroyMethod 		string
+	destroyData   		string
+	deletePath    		string
+	searchPath    		string
+	queryString   		string
+	debug         		bool
+	createReadyKey   	string
+	createReadyValue 	string
+	readSearch    		map[string]string
+	id            		string
+	idAttribute   		string
+	data          		string
 }
 
 /*APIObject is the state holding struct for a restapi_object resource*/
@@ -54,11 +56,13 @@ type APIObject struct {
 
 	/* Set internally */
 	data        map[string]interface{} /* Data as managed by the user */
+	updateData  map[string]interface{} /* Update data as managed by the user */
+	destroyData map[string]interface{} /* Destroy data as managed by the user */
 	apiData     map[string]interface{} /* Data as available from the API */
 	apiResponse string
 }
 
-//NewAPIObject makes an APIobject to manage a RESTful object in an API
+// NewAPIObject makes an APIobject to manage a RESTful object in an API
 func NewAPIObject(iClient *APIClient, opts *apiObjectOpts) (*APIObject, error) {
 	if opts.debug {
 		log.Printf("api_object.go: Constructing debug api_object\n")
@@ -82,10 +86,15 @@ func NewAPIObject(iClient *APIClient, opts *apiObjectOpts) (*APIObject, error) {
 	if opts.updateMethod == "" {
 		opts.updateMethod = iClient.updateMethod
 	}
+	if opts.updateData == "" {
+		opts.updateData = iClient.updateData
+	}
 	if opts.destroyMethod == "" {
 		opts.destroyMethod = iClient.destroyMethod
 	}
-
+	if opts.destroyData == "" {
+		opts.destroyData = iClient.destroyData
+	}
 	if opts.postPath == "" {
 		opts.postPath = opts.path
 	}
@@ -103,25 +112,27 @@ func NewAPIObject(iClient *APIClient, opts *apiObjectOpts) (*APIObject, error) {
 	}
 
 	obj := APIObject{
-		apiClient:        iClient,
-		getPath:          opts.getPath,
-		postPath:         opts.postPath,
-		putPath:          opts.putPath,
-		createMethod:     opts.createMethod,
-		readMethod:       opts.readMethod,
-		updateMethod:     opts.updateMethod,
-		destroyMethod:    opts.destroyMethod,
-		deletePath:       opts.deletePath,
-		searchPath:       opts.searchPath,
-		queryString:      opts.queryString,
-		debug:            opts.debug,
+		apiClient:     iClient,
+		getPath:       opts.getPath,
+		postPath:      opts.postPath,
+		putPath:       opts.putPath,
+		createMethod:  opts.createMethod,
+		readMethod:    opts.readMethod,
+		updateMethod:  opts.updateMethod,
+		destroyMethod: opts.destroyMethod,
+		deletePath:    opts.deletePath,
+		searchPath:    opts.searchPath,
+		queryString:   opts.queryString,
+		debug:         opts.debug,
 		createReadyKey:   opts.createReadyKey,
 		createReadyValue: opts.createReadyValue,
-		readSearch:       opts.readSearch,
-		id:               opts.id,
-		idAttribute:      opts.idAttribute,
-		data:             make(map[string]interface{}),
-		apiData:          make(map[string]interface{}),
+		readSearch:    opts.readSearch,
+		id:            opts.id,
+		idAttribute:   opts.idAttribute,
+		data:          make(map[string]interface{}),
+		updateData:    make(map[string]interface{}),
+		destroyData:   make(map[string]interface{}),
+		apiData:       make(map[string]interface{}),
 	}
 
 	if opts.data != "" {
@@ -152,6 +163,28 @@ func NewAPIObject(iClient *APIClient, opts *apiObjectOpts) (*APIObject, error) {
 		}
 	}
 
+	if opts.updateData != "" {
+		if opts.debug {
+			log.Printf("api_object.go: Parsing update data: '%s'", opts.updateData)
+		}
+
+		err := json.Unmarshal([]byte(opts.updateData), &obj.updateData)
+		if err != nil {
+			return &obj, fmt.Errorf("api_object.go: error parsing update data provided: %v", err.Error())
+		}
+	}
+
+	if opts.destroyData != "" {
+		if opts.debug {
+			log.Printf("api_object.go: Parsing destroy data: '%s'", opts.destroyData)
+		}
+
+		err := json.Unmarshal([]byte(opts.destroyData), &obj.destroyData)
+		if err != nil {
+			return &obj, fmt.Errorf("api_object.go: error parsing destroy data provided: %v", err.Error())
+		}
+	}
+
 	if opts.debug {
 		log.Printf("api_object.go: Constructed object: %s", obj.toString())
 	}
@@ -177,13 +210,18 @@ func (obj *APIObject) toString() string {
 	buffer.WriteString(fmt.Sprintf("create_ready_value: %s\n", obj.createReadyValue))
 	buffer.WriteString(fmt.Sprintf("read_search: %s\n", spew.Sdump(obj.readSearch)))
 	buffer.WriteString(fmt.Sprintf("data: %s\n", spew.Sdump(obj.data)))
+	buffer.WriteString(fmt.Sprintf("update_data: %s\n", spew.Sdump(obj.updateData)))
+	buffer.WriteString(fmt.Sprintf("destroy_data: %s\n", spew.Sdump(obj.destroyData)))
 	buffer.WriteString(fmt.Sprintf("api_data: %s\n", spew.Sdump(obj.apiData)))
 	return buffer.String()
 }
 
-/* Centralized function to ensure that our data as managed by
-   the api_object is updated with data that has come back from
-   the API */
+/*
+Centralized function to ensure that our data as managed by
+
+	the api_object is updated with data that has come back from
+	the API
+*/
 func (obj *APIObject) updateState(state string) error {
 	if obj.debug {
 		log.Printf("api_object.go: Updating API object state to '%s'\n", state)
@@ -335,6 +373,14 @@ func (obj *APIObject) updateObject() error {
 
 	b, _ := json.Marshal(obj.data)
 
+	updateData, _ := json.Marshal(obj.updateData)
+	if string(updateData) != "{}" {
+		if obj.debug {
+			log.Printf("api_object.go: Using update data '%s'", string(updateData))
+		}
+		b = updateData
+	}
+
 	putPath := obj.putPath
 	if obj.queryString != "" {
 		if obj.debug {
@@ -376,7 +422,16 @@ func (obj *APIObject) deleteObject() error {
 		deletePath = fmt.Sprintf("%s?%s", obj.deletePath, obj.queryString)
 	}
 
-	_, err := obj.apiClient.sendRequest(obj.destroyMethod, strings.Replace(deletePath, "{id}", obj.id, -1), "")
+	b := []byte{}
+	destroyData, _ := json.Marshal(obj.destroyData)
+	if string(destroyData) != "{}" {
+		if obj.debug {
+			log.Printf("api_object.go: Using destroy data '%s'", string(destroyData))
+		}
+		b = destroyData
+	}
+
+	_, err := obj.apiClient.sendRequest(obj.destroyMethod, strings.Replace(deletePath, "{id}", obj.id, -1), string(b))
 	if err != nil {
 		return err
 	}
